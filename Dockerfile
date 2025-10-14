@@ -1,54 +1,41 @@
-# ---- Build args ----
-ARG NODE_VERSION=20.12.2
-
-# ---- 1) Base ----
-FROM node:${NODE_VERSION}-bookworm-slim AS base
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-
-# Use the app subfolder as working directory
+# ---- 1) Deps ----
+FROM node:20.12.2-bookworm-slim AS deps
 WORKDIR /app/restricted-yt
 
-# ---- 2) Deps (install node_modules) ----
-FROM base AS deps
-
-# Copy lockfiles for better caching (adjust if you use yarn/pnpm)
+# Copy manifests first for better caching
 COPY restricted-yt/package.json restricted-yt/package-lock.json* ./
 
+# Install ALL deps (incl. dev) for building
 RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
-    npm ci
+    bash -lc 'if [ -f package-lock.json ]; then npm ci; else npm install; fi'
 
-# ---- 3) Builder (build Next.js) ----
-FROM base AS builder
-# Reuse deps
+# ---- 2) Builder ----
+FROM node:20.12.2-bookworm-slim AS builder
+WORKDIR /app/restricted-yt
+
+# Reuse installed modules
 COPY --from=deps /app/restricted-yt/node_modules ./node_modules
-# Copy the app source
-COPY restricted-yt ./
+# Copy app source
+COPY restricted-yt/ ./
 
-# Build Next.js (standalone output)
+# Build (produces .next/standalone + .next/static)
 RUN npm run build
 
-# ---- 4) Runner (minimal image) ----
-FROM node:${NODE_VERSION}-bookworm-slim AS runner
+# ---- 3) Runner ----
+FROM node:20.12.2-bookworm-slim AS runner
+WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-WORKDIR /app
 
-# Non-root user
+# Run as non-root
 RUN addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 nextjs
+USER nextjs
 
-# Copy the standalone server and assets from the subproject
-# .next/standalone contains server.js + minimal node_modules
-COPY --from=builder /app/restricted-yt/.next/standalone ./ 
+# Copy standalone output + assets
+COPY --from=builder /app/restricted-yt/.next/standalone ./
 COPY --from=builder /app/restricted-yt/.next/static ./.next/static
 COPY --from=builder /app/restricted-yt/public ./public
 
-# Own files
-RUN chown -R nextjs:nodejs /app
-USER nextjs
-
 EXPOSE 3000
-
-# Start the Next.js standalone server
 CMD ["node", "server.js"]

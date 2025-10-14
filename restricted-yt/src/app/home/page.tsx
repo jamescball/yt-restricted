@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Video = {
@@ -10,7 +10,18 @@ type Video = {
   thumbnail: string;
 };
 
+// Force dynamic rendering to avoid prerender errors with searchParams
+export const dynamic = "force-dynamic";
+
 export default function HomePage() {
+  return (
+    <Suspense fallback={<HomeFallback />}>
+      <HomeInner />
+    </Suspense>
+  );
+}
+
+function HomeInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [uid, setUid] = useState<string | null>(null);
@@ -78,15 +89,13 @@ export default function HomePage() {
     runSearch(q.trim());
   }
 
-  //Server-side sign out
   async function signOut() {
     try {
       setSigningOut(true);
       await fetch("/api/signout", { method: "POST", cache: "no-store" });
     } catch {
-      // if error do nothing, still want to clear cookie client-side
+      // ignore
     } finally {
-      // ensure UI reflects auth change
       router.replace("/");
       router.refresh();
       setSigningOut(false);
@@ -141,7 +150,7 @@ export default function HomePage() {
       <div className="flex-1">
         <header className="sticky top-0 z-10 border-b bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
           <div className="mx-auto flex max-w-6xl items-center gap-3 p-3 md:p-4">
-            <div className="hidden text-base font-semibold md:block">Restricted YouTube</div>
+            <div className="hidden text-base font-semibold md:block">Locked YouTube</div>
             <form onSubmit={onSearch} className="flex w-full items-center gap-2">
               <div className="flex w-full items-center rounded-full border bg-white pl-4">
                 <input
@@ -212,6 +221,16 @@ export default function HomePage() {
         </main>
       </div>
     </div>
+  );
+}
+
+function HomeFallback() {
+  return (
+    <main className="grid gap-4 p-4 md:p-6">
+      <div className="h-10 w-64 animate-pulse rounded-md bg-neutral-200" />
+      <div className="h-10 w-full animate-pulse rounded-md bg-neutral-200" />
+      <div className="h-[60vh] w-full animate-pulse rounded-xl bg-neutral-200" />
+    </main>
   );
 }
 
